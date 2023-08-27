@@ -13,8 +13,8 @@
 /* If manual edits are made, the following tags should be modified accordingly.    */
 /* BINDTOOL_GEN_AUTOMATIC(0)                                                       */
 /* BINDTOOL_USE_PYGCCXML(0)                                                        */
-/* BINDTOOL_HEADER_FILE(fsk4_slicer_fb.h)                                        */
-/* BINDTOOL_HEADER_FILE_HASH(98e94c92bf8565c0a2415ef5d3a95ba9)                     */
+/* BINDTOOL_HEADER_FILE(fsk4_slicer_fb.h)                                          */
+/* BINDTOOL_HEADER_FILE_HASH(95765b5d89aefdc3b89b350039d0f4da)                     */
 /***********************************************************************************/
 
 #include <pybind11/complex.h>
@@ -37,6 +37,8 @@ void bind_fsk4_slicer_fb(py::module& m)
         std::shared_ptr<fsk4_slicer_fb>>(m, "fsk4_slicer_fb", D(fsk4_slicer_fb))
 
         .def(py::init(&fsk4_slicer_fb::make),
+           py::arg("msgq_id"),
+           py::arg("debug"),
            py::arg("slice_levels"),
            D(fsk4_slicer_fb,make)
         )

@@ -12,7 +12,7 @@
 include(GrPlatform) #define LIB_SUFFIX
 
 list(APPEND op25_repeater_sources
-ambe_encoder_sb_impl.cc
+    ambe_encoder_sb_impl.cc
     dmr_bs_tx_bb_impl.cc
     ysf_tx_sb_impl.cc
     dstar_tx_sb_impl.cc
@@ -29,6 +29,7 @@ ambe_encoder_sb_impl.cc
     rs.cc
     p25_framer.cc
     p25p1_fdma.cc
+    p25_crypt_algs.cc
     p25p1_voice_encode.cc
     p25p1_voice_decode.cc
     p25p2_framer.cc
@@ -54,7 +55,12 @@ ambe_encoder_sb_impl.cc
     op25_audio.cc
     op25_timer
     CCITTChecksumReverse.cpp
+    message.cc
+    msg_queue.cc
+    msg_handler.cc
 )
+
+add_subdirectory(imbe_vocoder)
 
 option(AMBE_TONES "Enable AMBE tone synthesis" ON)
 if (AMBE_TONES)
@@ -76,7 +82,7 @@ if(NOT op25_repeater_sources)
 endif(NOT op25_repeater_sources)
 
 add_library(gnuradio-op25_repeater SHARED ${op25_repeater_sources})
-target_link_libraries(gnuradio-op25_repeater gnuradio::gnuradio-runtime gnuradio::gnuradio-filter)
+target_link_libraries(gnuradio-op25_repeater PRIVATE imbe_vocoder gnuradio::gnuradio-runtime gnuradio::gnuradio-filter)
 target_include_directories(gnuradio-op25_repeater
     PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../include>
     PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../lib>
@@ -118,16 +124,16 @@ list(APPEND test_op25_repeater_sources
 # Anything we need to link to for the unit tests go here
 list(APPEND GR_TEST_TARGET_DEPS gnuradio-op25_repeater)
 
+if(NOT test_op25_repeater_sources)
+    MESSAGE(STATUS "No C++ unit tests... skipping")
+    return()
+endif(NOT test_op25_repeater_sources)
+
 target_link_libraries(
   ${GNURADIO_RUNTIME_LIBRARIES}
   ${CPPUNIT_LIBRARIES}
   gnuradio-op25_repeater
 )
-
-if(NOT test_op25_repeater_sources)
-    MESSAGE(STATUS "No C++ unit tests... skipping")
-    return()
-endif(NOT test_op25_repeater_sources)
 
 foreach(qa_file ${test_op25_repeater_sources})
     GR_ADD_CPP_TEST("op25_repeater_${qa_file}"

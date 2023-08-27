@@ -31,6 +31,5 @@ install(FILES
     ambe_encoder_sb.h
     ysf_tx_sb.h
     dstar_tx_sb.h
-    costas_loop_cc.h
     fsk4_slicer_fb.h DESTINATION include/gnuradio/op25_repeater
 )

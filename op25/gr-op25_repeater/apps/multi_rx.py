@@ -64,6 +64,7 @@ import op25_nbfm
 import op25_iqsrc
 import op25_wavsrc
 from log_ts import log_ts
+from helper_funcs import *
 
 from gr_gnuplot import constellation_sink_c
 from gr_gnuplot import fft_sink_c
@@ -79,17 +80,6 @@ os.environ['IMBE'] = 'soft'
 
 _def_symbol_rate = 4800
 _def_capture_file = "capture.bin"
-
-# Helper functions
-#
-def from_dict(d, key, def_val):
-    if key in d and d[key] != "":
-        return d[key]
-    else:
-        return def_val
-
-def get_fractional_ppm(tuned_freq, adj_val):
-    return (adj_val * 1e6 / tuned_freq)
 
 # The P25 receiver
 #
@@ -186,10 +176,10 @@ class channel(object):
         self.tracking_threshold = int(from_dict(config, "tracking_threshold", 120))
         self.tracking_limit     = int(from_dict(config, "tracking_limit", 2400))
         self.tracking_feedback  = float(from_dict(config, "tracking_feedback", 0.85))
-        #if str(from_dict(config, "demod_type", "")).lower() != "cqpsk":
-        #    self.auto_tracking = False
         self.tracking = 0
         self.tracking_cache = {}
+        self.crypt_keys_file    = str(from_dict(config, "crypt_keys", ""))
+        self.crypt_keys = {}
         self.error = None
         self.chan_idle = False
         self.sinks = {}
@@ -236,6 +226,13 @@ class channel(object):
                              if_rate = config['if_rate'],
                              symbol_rate = self.symbol_rate)
         self.decoder = op25_repeater.frame_assembler(str(config['destination']), verbosity, msgq_id, rx_q)
+
+        # Load crypt keys if present
+        if self.crypt_keys_file != "":
+            sys.stderr.write("%s [%d] reading channel crypt_keys file: %s\n" % (log_ts.get(), self.msgq_id, self.crypt_keys_file))
+            self.crypt_keys = get_key_dict(self.crypt_keys_file, self.msgq_id)
+            for keyid in self.crypt_keys.keys():
+                self.decoder.crypt_key(int(keyid), int(self.crypt_keys[keyid]['algid']), self.crypt_keys[keyid]['key'])
 
         # Relative-tune the demodulator
         if not self.demod.set_relative_frequency((dev.frequency + dev.offset + dev.fractional_corr) - self.frequency):
@@ -525,19 +522,10 @@ class channel(object):
             self.sinks[sink][0].kill()
 
     def error_tracking(self):
-        #if self.chan_idle or not self.auto_tracking:
         if self.chan_idle:
             self.error = None
             return
         self.error = self.demod.get_freq_error()
-        #if self.verbosity >= 10:
-        #if self.verbosity >= 1:
-        #    sys.stderr.write("%s [%d] frequency tracking(%d): locked: % d, quality: %f, freq: %d\n" % (log_ts.get(), self.msgq_id, self.tracking, self.demod.locked(), self.demod.quality(), self.error))
-        #if abs(self.error) >= self.tracking_threshold:
-        #    self.tracking += self.error * self.tracking_feedback
-        #    self.tracking = min(self.tracking_limit, max(-self.tracking_limit, self.tracking))
-        #    self.tracking_cache[self.frequency] = self.tracking
-        #    self.demod.set_relative_frequency(self.device.offset + self.device.frequency + self.device.fractional_corr + self.tracking - self.frequency)
 
     def dump_tracking(self):
         sys.stderr.write("%s [%d] Frequency Tracking Cache: ch(%d)\n{\n" % (log_ts.get(), self.msgq_id, self.msgq_id))
@@ -584,9 +572,9 @@ class rx_block (gr.top_block):
         self.meta_streams = {}
         self.trunking = None
         self.du_watcher = None
-        self.rx_q = gr.msg_queue(100)
-        self.ui_in_q = gr.msg_queue(100)
-        self.ui_out_q = gr.msg_queue(100)
+        self.rx_q = op25_repeater.msg_queue(100)
+        self.ui_in_q = op25_repeater.msg_queue(100)
+        self.ui_out_q = op25_repeater.msg_queue(100)
         self.ui_timeout = 5.0
         self.ui_last_update = 0.0
 
@@ -718,7 +706,7 @@ class rx_block (gr.top_block):
                     sys.stderr.write("Ignoring duplicate metadata stream #%d [%s]\n" % (idx, stream_name))
                     break
                 try:
-                    meta_q = gr.msg_queue(10)
+                    meta_q = op25_repeater.msg_queue(10)
                     meta_s = self.metadata.meta_server(meta_q, stream, debug=self.verbosity)
                     self.meta_streams[stream_name] = (meta_s, meta_q)
                     sys.stderr.write("Configuring metadata stream #%d [%s]: %s\n" % (idx, stream_name, stream['icecastServerAddress'] + "/" + stream['icecastMountpoint']))
@@ -870,7 +858,7 @@ class rx_block (gr.top_block):
             if self.trunking is None or self.trunk_rx is None:
                 return False
             js = self.trunk_rx.to_json()    # extract data from trunking module
-            msg = gr.message().make_from_string(js, -4, 0, 0)
+            msg = op25_repeater.message().make_from_string(js, -4, 0, 0)
             self.ui_in_q.insert_tail(msg)   # send info back to UI
             self.ui_plot_update()
         elif s == 'toggle_plot':
@@ -891,7 +879,7 @@ class rx_block (gr.top_block):
             if self.terminal is not None and self.terminal_config is not None:
                 self.terminal_config['json_type'] = "terminal_config"
                 js = json.dumps(self.terminal_config)
-                msg = gr.message().make_from_string(js, -4, 0, 0)
+                msg = op25_repeater.message().make_from_string(js, -4, 0, 0)
                 self.ui_in_q.insert_tail(msg)
             else:
                 return False
@@ -899,7 +887,7 @@ class rx_block (gr.top_block):
             cfg = self.config
             cfg['json_type'] = "full_config"
             js = json.dumps(cfg)
-            msg = gr.message().make_from_string(js, -4, 0, 0)
+            msg = op25_repeater.message().make_from_string(js, -4, 0, 0)
             self.ui_in_q.insert_tail(msg)
         elif s == 'set_full_config':
             pass
@@ -949,7 +937,7 @@ class rx_block (gr.top_block):
             meta_s, meta_q = self.meta_streams[s_name]
             params[rx_id]['stream_url'] = meta_s.get_url()
         js = json.dumps(params)
-        msg = gr.message().make_from_string(js, -4, 0, 0)
+        msg = op25_repeater.message().make_from_string(js, -4, 0, 0)
         self.ui_in_q.insert_tail(msg)
 
     def ui_plot_update(self):
@@ -962,7 +950,7 @@ class rx_block (gr.top_block):
                 if chan.sinks[sink][0].gnuplot.filename is not None:
                     filenames.append(chan.sinks[sink][0].gnuplot.filename)
         d = {'json_type': 'rx_update', 'files': filenames}
-        msg = gr.message().make_from_string(json.dumps(d), -4, 0, 0)
+        msg = op25_repeater.message().make_from_string(json.dumps(d), -4, 0, 0)
         self.ui_in_q.insert_tail(msg)
 
     def kill(self):
@@ -990,7 +978,7 @@ class du_queue_watcher(threading.Thread):
 
     def __init__(self, msgq,  callback, **kwds):
         threading.Thread.__init__ (self, **kwds)
-        self.daemon = True
+        self.setDaemon(1)
         self.msgq = msgq
         self.callback = callback
         self.keep_running = True
@@ -1064,7 +1052,7 @@ class rx_main(object):
             if self.tb.get_interactive():
                 while self.keep_running:
                     time.sleep(1.0)
-                    msg = gr.message().make_from_string("watchdog", -2, 0, 0)
+                    msg = op25_repeater.message().make_from_string("watchdog", -2, 0, 0)
                     self.tb.ui_out_q.insert_tail(msg)
             else:
                 self.tb.wait() # curiously wait() matures when a flowgraph gets locked

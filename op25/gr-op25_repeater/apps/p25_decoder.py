@@ -92,7 +92,7 @@ class p25_decoder_sink_b(gr.hier_block2):
             do_phase2_tdma = True
 
         if msgq is None:
-            msgq = gr.msg_queue(1)
+            msgq = op25_repeater.msg_queue(1)
 
         self.p25_decoders = []
         self.audio_s2f = []
@@ -155,3 +155,11 @@ class p25_decoder_sink_b(gr.hier_block2):
         self.debug = dbglvl
         for decoder in self.p25_decoders:
             decoder.set_debug(dbglvl)
+
+    def crypt_key(self, keyid, algid, keyval):
+        for decoder in self.p25_decoders:
+            decoder.crypt_key(keyid, algid, keyval)
+
+    def crypt_reset(self):
+        for decoder in self.p25_decoders:
+            decoder.crypt_reset()

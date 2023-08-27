@@ -29,6 +29,8 @@ import threading
 from gnuradio import gr
 from waitress.server import create_server
 
+import gnuradio.op25_repeater as op25_repeater
+
 my_input_q = None
 my_output_q = None
 my_recv_q = None
@@ -68,7 +70,7 @@ def post_req(environ, start_response, postdata):
     try:
         data = json.loads(postdata)
         for d in data:
-            msg = gr.message().make_from_string(str(d['command']), -2, d['arg1'], d['arg2'])
+            msg = op25_repeater.message().make_from_string(str(d['command']), -2, d['arg1'], d['arg2'])
             my_output_q.insert_tail(msg)
         valid_req = True
         time.sleep(0.2)
@@ -136,7 +138,7 @@ class http_server(object):
         my_output_q = output_q
         my_port = int(port)
 
-        my_recv_q = gr.msg_queue(10)
+        my_recv_q = op25_repeater.msg_queue(10)
         self.q_watcher = queue_watcher(my_input_q, process_qmsg)
 
         try:
@@ -151,7 +153,7 @@ class http_server(object):
 class queue_watcher(threading.Thread):
     def __init__(self, msgq,  callback, **kwds):
         threading.Thread.__init__ (self, **kwds)
-        self.daemon = True
+        self.setDaemon(1)
         self.msgq = msgq
         self.callback = callback
         self.keep_running = True

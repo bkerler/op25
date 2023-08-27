@@ -32,9 +32,10 @@ import sys
 from gnuradio import gr, eng_notation
 from gnuradio import filter, analog, digital, blocks
 from gnuradio.eng_option import eng_option
+from gnuradio.fft import window
+import pmt
 import gnuradio.op25 as op25
 import gnuradio.op25_repeater as op25_repeater
-from gnuradio.fft import window
 import rms_agc
 from math import pi
 
@@ -157,7 +158,7 @@ class p25_demod_base(gr.hier_block2):
             if ntaps & 1 == 0:
                 ntaps += 1
             coeffs = filter.firdes.root_raised_cosine(1.0, self.if_rate, self.symbol_rate, excess_bw, ntaps)
-            autotuneq = gr.msg_queue(2)
+            autotuneq = op25_repeater.msg_queue(2)
             self.fsk4_demod = op25.fsk4_demod_ff(autotuneq, self.if_rate, self.symbol_rate, True)
             self.baseband_amp = op25_repeater.rmsagc_ff(alpha=0.01, k=1.0)
             self.symbol_filter = filter.fir_filter_fff(1, coeffs)
@@ -165,19 +166,20 @@ class p25_demod_base(gr.hier_block2):
         elif filter_type == "widepulse":
             coeffs = op25_c4fm_mod.c4fm_taps(sample_rate=self.if_rate, span=9, generator=op25_c4fm_mod.transfer_function_rx).generate(rate_multiplier = 2.0)
             self.symbol_filter = filter.fir_filter_fff(1, coeffs)
-            autotuneq = gr.msg_queue(2)
+            autotuneq = op25_repeater.msg_queue(2)
             self.fsk4_demod = op25.fsk4_demod_ff(autotuneq, self.if_rate, self.symbol_rate)
             levels = [ -2.0, 0.0, 2.0, 4.0 ]
             self.slicer = op25_repeater.fsk4_slicer_fb(self.msgq_id, self.debug, levels)
         else:
             self.symbol_filter = filter.fir_filter_fff(1, coeffs)
-            autotuneq = gr.msg_queue(2)
+            autotuneq = op25_repeater.msg_queue(2)
             self.fsk4_demod = op25.fsk4_demod_ff(autotuneq, self.if_rate, self.symbol_rate)
             levels = [ -2.0, 0.0, 2.0, 4.0 ]
             self.slicer = op25_repeater.fsk4_slicer_fb(self.msgq_id, self.debug, levels)
 
     def set_debug(self, debug):
-        self.slicer.set_debug(debug)
+        if callable(getattr(self.slicer, 'set_debug', None)):
+            self.slicer.set_debug(debug)
 
     def set_symbol_rate(self, rate):
         self.symbol_rate = rate
@@ -397,7 +399,7 @@ class p25_demod_cb(p25_demod_base):
         #fb = fa + 1450
         fa = 6250
         fb = fa + 1250
-        cutoff_coeffs = filter.firdes.low_pass(1.0, self.if_rate, (fb+fa)/2, fb-fa, filter.firdes.WIN_HANN)
+        cutoff_coeffs = filter.firdes.low_pass(1.0, self.if_rate, (fb+fa)/2, fb-fa, window.WIN_HANN)
         self.cutoff = filter.fir_filter_ccf(1, cutoff_coeffs)
 
         omega = float(self.if_rate) / float(self.symbol_rate)
@@ -406,7 +408,7 @@ class p25_demod_cb(p25_demod_base):
 
         self.agc = rms_agc.rms_agc(0.45, 0.85)
         self.fll = digital.fll_band_edge_cc(sps, excess_bw, 2*sps+1, TWO_PI/sps/250) # automatic frequency correction
-        self.clock = op25_repeater.gardner_cc(omega, gain_mu, gain_omega)            # timing recovery
+        self.clock = op25_repeater.gardner_cc(omega, gain_mu, gain_omega, 0.28)            # timing recovery
         self.costas = op25_repeater.costas_loop_cc(costas_alpha, 4, TWO_PI/4)        # phase stabilization, range-limited to +/-90deg
 
         # Perform Differential decoding on the constellation

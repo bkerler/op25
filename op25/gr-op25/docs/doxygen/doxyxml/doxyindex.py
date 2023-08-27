@@ -30,6 +30,10 @@ class DoxyIndex(Base):
         if self._parsed:
             return
         super(DoxyIndex, self)._parse()
+
+        if (not os.path.exists(os.path.join(self._xml_path, 'index.xml'))):
+            return
+
         self._root = index.parse(os.path.join(self._xml_path, 'index.xml'))
         for mem in self._root.compound:
             converted = self.convert_mem(mem)

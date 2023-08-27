@@ -25,10 +25,10 @@
 import sys
 import os
 import math
-from gnuradio import gr,  audio, eng_notation
+from gnuradio import gr, audio, eng_notation
 from gnuradio import filter, blocks, analog, digital
-from gnuradio.fft import window
 from gnuradio.eng_option import eng_option
+from gnuradio.fft import window
 from optparse import OptionParser
 
 import gnuradio.op25 as op25

@@ -30,7 +30,7 @@ Transmit four simultaneous RF channels (dmr, p25, dstar, and ysf)
 import sys
 import os
 import math
-from gnuradio import gr,  audio, eng_notation
+from gnuradio import gr, audio, eng_notation
 from gnuradio import filter, blocks, analog, digital
 from gnuradio.eng_option import eng_option
 from gnuradio.fft import window

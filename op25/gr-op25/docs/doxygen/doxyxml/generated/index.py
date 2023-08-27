@@ -12,7 +12,6 @@ from . import compound
 
 from . import indexsuper as supermod
 
-
 class DoxygenTypeSub(supermod.DoxygenType):
     def __init__(self, version=None, compound=None):
         supermod.DoxygenType.__init__(self, version, compound)
@@ -32,7 +31,6 @@ class DoxygenTypeSub(supermod.DoxygenType):
                     results.append([compound, []])
 
         return results
-
 
 supermod.DoxygenType.subclass = DoxygenTypeSub
 # end class DoxygenTypeSub
@@ -55,7 +53,6 @@ class CompoundTypeSub(supermod.CompoundType):
 
         return results
 
-
 supermod.CompoundType.subclass = CompoundTypeSub
 # end class CompoundTypeSub
 
@@ -64,7 +61,6 @@ class MemberTypeSub(supermod.MemberType):
 
     def __init__(self, kind=None, refid=None, name=''):
         supermod.MemberType.__init__(self, kind, refid, name)
-
 
 supermod.MemberType.subclass = MemberTypeSub
 # end class MemberTypeSub
@@ -78,3 +74,4 @@ def parse(inFilename):
     rootObj.build(rootNode)
 
     return rootObj
+

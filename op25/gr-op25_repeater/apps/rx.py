@@ -95,6 +95,7 @@ from gr_gnuplot import fll_sink_c
 from terminal import op25_terminal
 from sockaudio  import audio_thread
 from log_ts import log_ts
+from helper_funcs import *
 
 #speeds = [300, 600, 900, 1200, 1440, 1800, 1920, 2400, 2880, 3200, 3600, 3840, 4000, 4800, 6000, 6400, 7200, 8000, 9600, 14400, 19200]
 speeds = [4800, 6000]
@@ -168,7 +169,7 @@ class p25_rx_block (gr.top_block):
             gain_names = self.src.get_gain_names()
             for name in gain_names:
                 g_range = self.src.get_gain_range(name)
-                sys.stderr.write("gain: name: %s range: start %d stop %d step %d\n" % (name, g_range[0].start(), g_range[0].stop(), g_range[0].step()))
+                sys.stderr.write("gain: name: %s range: start %d stop %d step %d\n" % (name, g_range.start(), g_range.stop(), g_range.step()))
             if options.gains:
                 for tup in options.gains.split(","):
                     name, gain = tup.split(":")
@@ -229,9 +230,9 @@ class p25_rx_block (gr.top_block):
             else:
                 raw_input("Press 'Enter' to continue...")
 
-        self.input_q = gr.msg_queue(10)
-        self.output_q = gr.msg_queue(10)
-        self.meta_q = gr.msg_queue(10)
+        self.input_q = op25_repeater.msg_queue(10)
+        self.output_q = op25_repeater.msg_queue(10)
+        self.meta_q = op25_repeater.msg_queue(10)
  
         # configure specified data source
         if options.input:
@@ -281,7 +282,7 @@ class p25_rx_block (gr.top_block):
         global speeds
         global WIRESHARK_PORT
 
-        self.rx_q = gr.msg_queue(100)
+        self.rx_q = op25_repeater.msg_queue(100)
         udp_port = 0
 
         if self.options.udp_player:
@@ -376,6 +377,13 @@ class p25_rx_block (gr.top_block):
         self.trunk_rx = trunking.rx_ctl(frequency_set = self.change_freq, nac_set = self.set_nac, debug = self.options.verbosity, conf_file = self.options.trunk_conf_file, logfile_workers=logfile_workers, meta_update = self.meta_update, crypt_behavior = self.options.crypt_behavior)
 
         self.du_watcher = du_queue_watcher(self.rx_q, self.trunk_rx.process_qmsg)
+
+        # Dowload encryption keys if provided
+        if self.options.crypt_keys is not None:
+            sys.stderr.write("%s reading crypt_keys file: %s\n" % (log_ts.get(), self.options.crypt_keys))
+            crypt_keys = get_key_dict(self.options.crypt_keys, 0)
+            for keyid in crypt_keys.keys():
+                self.decoder.crypt_key(int(keyid), int(crypt_keys[keyid]['algid']), crypt_keys[keyid]['key'])
 
     # Connect up the flow graph
     #
@@ -526,7 +534,7 @@ class p25_rx_block (gr.top_block):
         params['error'] = error
         params['stream_url'] = self.stream_url
         js = json.dumps(params)
-        msg = gr.message().make_from_string(js, -4, 0, 0)
+        msg = op25_repeater.message().make_from_string(js, -4, 0, 0)
         self.input_q.insert_tail(msg)
 
     def meta_update(self, tgid, tag):
@@ -535,7 +543,7 @@ class p25_rx_block (gr.top_block):
         d = {'json_type': 'meta_update'}
         d['tgid'] = tgid
         d['tag'] = tag
-        msg = gr.message().make_from_string(json.dumps(d), -2, time.time(), 0)
+        msg = op25_repeater.message().make_from_string(json.dumps(d), -2, time.time(), 0)
         self.meta_q.insert_tail(msg)
 
     def hamlib_attach(self, model):
@@ -548,7 +556,7 @@ class p25_rx_block (gr.top_block):
         self.hamlib.open ()
 
     def q_action(self, action):
-        msg = gr.message().make_from_string(action, -2, 0, 0)
+        msg = op25_repeater.message().make_from_string(action, -2, 0, 0)
         self.rx_q.insert_tail(msg)
 
     def set_gain(self, gain):
@@ -616,7 +624,8 @@ class p25_rx_block (gr.top_block):
     def set_debug(self, dbglvl):
         self.options.verbosity = dbglvl
         self.decoder.set_debug(dbglvl)
-        self.demod.set_debug(dbglvl)
+        if callable(getattr(self.demod, 'set_debug', None)):
+            self.demod.set_debug(dbglvl)
         if self.trunk_rx is not None:
             self.trunk_rx.set_debug(dbglvl)
 
@@ -909,7 +918,7 @@ class p25_rx_block (gr.top_block):
         if self.demod is not None:
             error = self.demod.get_freq_error()
         d = {'json_type': 'rx_update', 'error': error, 'fine_tune': self.options.fine_tune, 'files': filenames}
-        msg = gr.message().make_from_string(json.dumps(d), -4, 0, 0)
+        msg = op25_repeater.message().make_from_string(json.dumps(d), -4, 0, 0)
         self.input_q.insert_tail(msg)
 
     def process_qmsg(self, msg):
@@ -926,7 +935,7 @@ class p25_rx_block (gr.top_block):
             if self.trunk_rx is None:
                 return False    ## possible race cond - just ignore
             js = self.trunk_rx.to_json()
-            msg = gr.message().make_from_string(js, -4, 0, 0)
+            msg = op25_repeater.message().make_from_string(js, -4, 0, 0)
             self.input_q.insert_tail(msg)
             self.process_ajax()
         elif s == 'set_debug':
@@ -966,7 +975,7 @@ class du_queue_watcher(threading.Thread):
 
     def __init__(self, msgq,  callback, **kwds):
         threading.Thread.__init__ (self, **kwds)
-        self.daemon = True
+        self.setDaemon(1)
         self.msgq = msgq
         self.callback = callback
         self.keep_running = True
@@ -998,7 +1007,7 @@ class rx_main(object):
             else:
                 while self.keep_running:
                     time.sleep(1)
-                    msg = gr.message().make_from_string("watchdog", -2, 0, 0)
+                    msg = op25_repeater.message().make_from_string("watchdog", -2, 0, 0)
                     self.tb.output_q.insert_tail(msg)
             sys.stderr.write('Flowgraph completed. Exiting\n')
         except:
@@ -1041,7 +1050,8 @@ class rx_main(object):
         parser.add_option("-v", "--verbosity", type="int", default=0, help="message debug level")
         parser.add_option("-V", "--vocoder", action="store_true", default=False, help="voice codec")
         parser.add_option("-n", "--nocrypt", action="store_true", default=False, help="silence encrypted traffic")
-        parser.add_option("--crypt-behavior", type="int", default=1, help="encrypted traffic behavior: 0=allow, 1=silence, 2=skip")
+        parser.add_option("--crypt-behavior", type="int", default=2, help="encrypted traffic behavior: 0=allow, 1=silence, 2=skip")
+        parser.add_option("-k", "--crypt-keys", type="string", default=None, help="decryption keys file (in json format)")
         parser.add_option("-o", "--offset", type="eng_float", default=0.0, help="tuning offset frequency [to circumvent DC offset]", metavar="Hz")
         parser.add_option("-p", "--pause", action="store_true", default=False, help="block on startup")
         parser.add_option("-w", "--wireshark", action="store_true", default=False, help="output data to Wireshark")

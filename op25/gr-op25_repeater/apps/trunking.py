@@ -24,11 +24,13 @@ import ctypes
 import time
 import collections
 import json
+import ast
 sys.path.append('tdma')
 import lfsr
 from helper_funcs import *
 from log_ts import log_ts
 from gnuradio import gr
+import gnuradio.op25_repeater as op25_repeater
 
 def get_tgid(tgid):
     if tgid is not None:
@@ -1299,7 +1301,7 @@ class rx_ctl (object):
         d = {'json_type': 'meta_update'}
         d['tgid'] = tgid
         d['tag'] = tag
-        msg = gr.message().make_from_string(json.dumps(d), -2, time.time(), 0)
+        msg = op25_repeater.message().make_from_string(json.dumps(d), -2, time.time(), 0)
         self.meta_q.insert_tail(msg)
 
     def post_init(self):
@@ -1384,7 +1386,7 @@ class rx_ctl (object):
     def build_config_chans(self, config):
         configs = {}
         for cfg in config:
-            nac = eval(cfg['nac'])
+            nac = ast.literal_eval(cfg['nac'])
             configs[nac] = cfg
         self.setup_config(configs)
 

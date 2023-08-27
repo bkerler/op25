@@ -115,12 +115,14 @@ public:
 	void rx_sym(const uint8_t sym);
 	void sync_reset(void);
 	void reset_timer(void);
+	void crypt_reset(void);
+	void crypt_key(uint16_t keyid, uint8_t algid, const std::vector<uint8_t> &key);
 	void set_slot_mask(int mask);
 	void set_slot_key(int mask);
 	void set_xormask(const char* p);
 	void set_nac(int nac);
 	void set_debug(int debug);
-	rx_sync(const char * options, int debug, int msgq_id, gr::msg_queue::sptr queue);
+	rx_sync(const char * options, log_ts& logger, int debug, int msgq_id, gr::op25::msg_queue::sptr queue);
 	~rx_sync();
 
 private:
@@ -161,11 +163,11 @@ private:
 	std::deque<int16_t> d_output_queue[2];
 	dmr_cai dmr;
 	int d_msgq_id;
-	gr::msg_queue::sptr d_msg_queue;
+	gr::op25::msg_queue::sptr d_msg_queue;
 	bool d_stereo;
 	int d_debug;
 	op25_audio d_audio;
-	log_ts logts;
+	log_ts& logts;
 };
 
     } // end namespace op25_repeater

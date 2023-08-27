@@ -39,7 +39,7 @@ typedef uint8_t dibit;
 
 typedef std::deque<float> float_queue;
 
-typedef std::shared_ptr<class data_unit> data_unit_sptr;
+typedef boost::shared_ptr<class data_unit> data_unit_sptr;
 
 /**
  * A P25 data unit.
