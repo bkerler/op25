@@ -73,7 +73,8 @@ dmr_cai::send_msg(const std::string& m_buf, const int m_type) {
 		return;
 
 	gr::op25::message::sptr msg = gr::op25::message::make_from_string(m_buf, get_msg_type(PROTOCOL_DMR, m_type), (d_msgq_id << 1), logts.get_ts());
-	d_msg_queue->insert_tail(msg);
+	if (!d_msg_queue->full_p())
+	    d_msg_queue->insert_tail(msg);
 }
 
 bool

@@ -95,6 +95,11 @@ void rx_sync::sync_reset(void) {
 	reset_timer();
 }
 
+void rx_sync::call_end(void) {
+	p25fdma.call_end();
+	p25tdma.call_end();
+}
+
 void rx_sync::crypt_reset(void) {
 	p25fdma.crypt_reset();
 	p25tdma.crypt_reset();
@@ -266,11 +271,13 @@ void rx_sync::sync_timeout(rx_types proto)
 		case RX_TYPE_P25P1:
 		case RX_TYPE_P25P2:
 			msg = gr::op25::message::make_from_string(m_buf, get_msg_type(PROTOCOL_P25, M_P25_TIMEOUT), (d_msgq_id << 1), logts.get_ts());
-			d_msg_queue->insert_tail(msg);
+            if (!d_msg_queue->full_p())
+   			   d_msg_queue->insert_tail(msg);
 			break;
 		case RX_TYPE_DMR:
 			msg = gr::op25::message::make_from_string(m_buf, get_msg_type(PROTOCOL_DMR, M_DMR_TIMEOUT), (d_msgq_id << 1), logts.get_ts());
-			d_msg_queue->insert_tail(msg);
+			if (!d_msg_queue->full_p())
+			    d_msg_queue->insert_tail(msg);
 			break;
 		default:
 			break;
@@ -293,7 +300,8 @@ void rx_sync::sync_established(rx_types proto)
 		case RX_TYPE_P25P1:
 		case RX_TYPE_P25P2:
 			msg = gr::op25::message::make_from_string(m_buf, get_msg_type(PROTOCOL_P25, M_P25_SYNC_ESTAB), (d_msgq_id << 1), logts.get_ts());
-			d_msg_queue->insert_tail(msg);
+            if (!d_msg_queue->full_p())
+				d_msg_queue->insert_tail(msg);
 			break;
 		case RX_TYPE_DMR:
 			break;

@@ -3,7 +3,7 @@
 # 
 # Copyright 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020 Max H. Parke KA1RBI
 # 
-# Copyright 2018-2020 Graham J. Norbury
+# Copyright 2018-2023 Graham J. Norbury
 # 
 # Copyright 2003,2004,2005,2006 Free Software Foundation, Inc.
 #         (from radiorausch)
@@ -374,7 +374,7 @@ class p25_rx_block (gr.top_block):
                 logfile_workers.append({'demod': demod, 'decoder': decoder, 'active': False})
                 self.connect(source, demod, decoder)
 
-        self.trunk_rx = trunking.rx_ctl(frequency_set = self.change_freq, nac_set = self.set_nac, debug = self.options.verbosity, conf_file = self.options.trunk_conf_file, logfile_workers=logfile_workers, meta_update = self.meta_update, crypt_behavior = self.options.crypt_behavior)
+        self.trunk_rx = trunking.rx_ctl(frequency_set = self.change_freq, fa_ctrl = self.control, debug = self.options.verbosity, conf_file = self.options.trunk_conf_file, logfile_workers=logfile_workers, meta_update = self.meta_update, crypt_behavior = self.options.crypt_behavior)
 
         self.du_watcher = du_queue_watcher(self.rx_q, self.trunk_rx.process_qmsg)
 
@@ -383,7 +383,7 @@ class p25_rx_block (gr.top_block):
             sys.stderr.write("%s reading crypt_keys file: %s\n" % (log_ts.get(), self.options.crypt_keys))
             crypt_keys = get_key_dict(self.options.crypt_keys, 0)
             for keyid in crypt_keys.keys():
-                self.decoder.crypt_key(int(keyid), int(crypt_keys[keyid]['algid']), crypt_keys[keyid]['key'])
+                self.decoder.control({'tuner': 0, 'cmd': 'crypt_key', 'keyid': int(keyid), 'algid': int(crypt_keys[keyid]['algid']), 'key': crypt_keys[keyid]['key']})
 
     # Connect up the flow graph
     #
@@ -415,9 +415,8 @@ class p25_rx_block (gr.top_block):
         self.current_speed = new_speed
         self.connect_fsk4_demod()
 
-    def set_nac(self, params):
-        if 'nac' in params:
-            self.decoder.set_nac(params['nac'])
+    def control(self, params):
+        self.decoder.control(params)
 
     def configure_tdma(self, params):
         if params['tdma'] is not None and not self.options.phase2_tdma:
@@ -426,7 +425,7 @@ class p25_rx_block (gr.top_block):
         set_tdma = False
         if params['tdma'] is not None:
             set_tdma = True
-            self.decoder.set_slotid(params['tdma'])
+            self.decoder.control({'tuner': 0, 'cmd': 'set_slotid', 'slotid': params['tdma']})
         if set_tdma == self.tdma_state:
             return    # already in desired state
         self.tdma_state = set_tdma
@@ -434,7 +433,7 @@ class p25_rx_block (gr.top_block):
             hash = '%x%x%x' % (params['nac'], params['sysid'], params['wacn'])
             if hash not in self.xor_cache:
                 self.xor_cache[hash] = lfsr.p25p2_lfsr(params['nac'], params['sysid'], params['wacn']).xor_chars
-            self.decoder.set_xormask(self.xor_cache[hash], hash)
+            self.decoder.control({'tuner': 0, 'cmd': 'set_xormask', 'xormask': self.xor_cache[hash]})
             rate = 6000
         else:
             rate = self.symbol_rate
@@ -519,7 +518,7 @@ class p25_rx_block (gr.top_block):
                 self.set_freq(freq + offset)
             else:
                 pass                                        # fake tuning when playing back symbols file
-            self.decoder.reset_timer()
+            self.decoder.control({'tuner': 0, 'cmd': 'reset_timer'})
 
         self.configure_tdma(params)
         self.freq_update()
@@ -535,16 +534,21 @@ class p25_rx_block (gr.top_block):
         params['stream_url'] = self.stream_url
         js = json.dumps(params)
         msg = op25_repeater.message().make_from_string(js, -4, 0, 0)
-        self.input_q.insert_tail(msg)
+        msg = gr.message().make_from_string(js, -4, 0, 0)
+        if not self.input_q.full_p():
+            self.input_q.insert_tail(msg)
 
-    def meta_update(self, tgid, tag):
+    def meta_update(self, tgid, tag, rid = None):
         if self.meta_server is None:
             return
         d = {'json_type': 'meta_update'}
         d['tgid'] = tgid
         d['tag'] = tag
         msg = op25_repeater.message().make_from_string(json.dumps(d), -2, time.time(), 0)
-        self.meta_q.insert_tail(msg)
+        d['rid'] = rid
+        msg = gr.message().make_from_string(json.dumps(d), -2, time.time(), 0)
+        if not self.meta_q.full_p():
+            self.meta_q.insert_tail(msg)
 
     def hamlib_attach(self, model):
         Hamlib.rig_set_debug (Hamlib.RIG_DEBUG_NONE)    # RIG_DEBUG_TRACE
@@ -557,7 +561,8 @@ class p25_rx_block (gr.top_block):
 
     def q_action(self, action):
         msg = op25_repeater.message().make_from_string(action, -2, 0, 0)
-        self.rx_q.insert_tail(msg)
+        if not self.rx_q.full_p():
+            self.rx_q.insert_tail(msg)
 
     def set_gain(self, gain):
         if self.rtl_found:
@@ -865,7 +870,7 @@ class p25_rx_block (gr.top_block):
             rc = source.seek(file_seek*4800, 0) # Seek in seconds (4800sps)
             assert rc == True
         throttle = blocks.throttle(gr.sizeof_char, symbol_rate)
-        throttle.set_max_noutput_items(symbol_rate/50);
+        throttle.set_max_noutput_items(int(symbol_rate/50));
         self.connect(source, throttle)
         self.__build_graph(throttle, symbol_rate)
 
@@ -919,7 +924,8 @@ class p25_rx_block (gr.top_block):
             error = self.demod.get_freq_error()
         d = {'json_type': 'rx_update', 'error': error, 'fine_tune': self.options.fine_tune, 'files': filenames}
         msg = op25_repeater.message().make_from_string(json.dumps(d), -4, 0, 0)
-        self.input_q.insert_tail(msg)
+        if not self.input_q.full_p():
+            self.input_q.insert_tail(msg)
 
     def process_qmsg(self, msg):
         # return true = end top block
@@ -936,7 +942,8 @@ class p25_rx_block (gr.top_block):
                 return False    ## possible race cond - just ignore
             js = self.trunk_rx.to_json()
             msg = op25_repeater.message().make_from_string(js, -4, 0, 0)
-            self.input_q.insert_tail(msg)
+            if not self.input_q.full_p():
+                self.input_q.insert_tail(msg)
             self.process_ajax()
         elif s == 'set_debug':
             self.set_debug(int(msg.arg1()))
@@ -964,7 +971,8 @@ class p25_rx_block (gr.top_block):
                 self.toggle_plot(0)
 
         elif s in RX_COMMANDS:
-            self.rx_q.insert_tail(msg)
+            if not self.rx_q.full_p():
+                self.rx_q.insert_tail(msg)
         return False
 
 ############################################################################
@@ -975,7 +983,7 @@ class du_queue_watcher(threading.Thread):
 
     def __init__(self, msgq,  callback, **kwds):
         threading.Thread.__init__ (self, **kwds)
-        self.setDaemon(1)
+        self.daemon = True
         self.msgq = msgq
         self.callback = callback
         self.keep_running = True
@@ -983,8 +991,14 @@ class du_queue_watcher(threading.Thread):
 
     def run(self):
         while(self.keep_running):
-            msg = self.msgq.delete_head()
-            self.callback(msg)
+            if not self.msgq.empty_p(): # check queue before trying to read a message to avoid deadlock at startup
+                msg = self.msgq.delete_head()
+                if msg is not None:
+                    self.callback(msg)
+                else:
+                    self.keep_running = False
+            else: # empty queue
+                time.sleep(0.01)            
 
 class rx_main(object):
     def __init__(self):
@@ -1008,7 +1022,8 @@ class rx_main(object):
                 while self.keep_running:
                     time.sleep(1)
                     msg = op25_repeater.message().make_from_string("watchdog", -2, 0, 0)
-                    self.tb.output_q.insert_tail(msg)
+                    if not self.tb.output_q.full_p():
+                        self.tb.output_q.insert_tail(msg)
             sys.stderr.write('Flowgraph completed. Exiting\n')
         except:
             sys.stderr.write('main: exception occurred\n')

@@ -69,8 +69,14 @@ class q_watcher(threading.Thread):
 
     def run(self):
         while(self.keep_running):
-            msg = self.msgq.delete_head()
-            self.callback(msg)
+            if not self.msgq.empty_p():
+                msg = self.msgq.delete_head()
+                if msg is not None:
+                    self.callback(msg)
+                else:
+                    self.keep_running = False
+            else:
+                time.sleep(0.1)
 
 class curses_terminal(threading.Thread):
     def __init__(self, input_q,  output_q, sock=None, **kwds):
@@ -87,7 +93,9 @@ class curses_terminal(threading.Thread):
         self.current_encrypted = 0
         self.current_msgqid = '0'
         self.channel_list = []
+        self.default_channel = None
         self.capture_active = False
+        self.hold_tgid = 0
         self.maxx = 0
         self.maxy = 0
         self.sock = sock
@@ -411,6 +419,16 @@ class curses_terminal(threading.Thread):
             if ('channels' not in msg) or (len(msg['channels']) == 0):
                 return
             self.channel_list = msg['channels']
+
+            # Pick the default channel if specified and this is the first update received.
+            if self.default_channel is not None and self.default_channel != "":
+                for ch_id in self.channel_list:
+                    if msg[ch_id]['name'] == self.default_channel:
+                        self.current_msgqid = ch_id
+                        break
+                self.default_channel = None
+
+            # Format and display the channel info
             c_id = self.current_msgqid if self.current_msgqid in self.channel_list else self.channel_list[0]
             if 'system' in msg[c_id] and msg[c_id]['system'] is not None:
                 self.current_sysname = msg[c_id]['system']
@@ -428,6 +446,8 @@ class curses_terminal(threading.Thread):
                 s += ' Talkgroup ID %s' % (int(msg[c_id]['tgid']))
                 if 'tdma' in msg[c_id] and msg[c_id]['tdma'] is not None:
                     s += ' TDMA Slot %s' % int(msg[c_id]['tdma'])
+                if 'hold_tgid' in msg[c_id] and msg[c_id]['hold_tgid'] is not None:
+                    s += ' [HOLD]'
                 if 'mode' in msg[c_id]:
                     mode  = msg[c_id]['mode']
                     if mode == 0:
@@ -482,6 +502,8 @@ class curses_terminal(threading.Thread):
                 self.sm_step = int(msg['tuning_step_small'])
             if 'tuning_step_large' in msg and int(msg['tuning_step_large']) > 0:
                 self.lg_step = int(msg['tuning_step_large'])
+            if 'default_channel' in msg and str(msg['default_channel']) != "":
+                self.default_channel = str(msg['default_channel'])
  
         return False
 
@@ -506,7 +528,8 @@ class curses_terminal(threading.Thread):
             self.sock.send(js)
         else:
             msg = op25_repeater.message().make_from_string(command, -2, arg1, arg2)
-            self.output_q.insert_tail(msg)
+            if not self.output_q.full_p():
+                self.output_q.insert_tail(msg)
 
     def run(self):
         try:
@@ -536,7 +559,6 @@ class http_terminal(threading.Thread):
         self.endpoint = endpoint
         self.keep_running = True
         self.server = http_server(self.input_q, self.output_q, self.endpoint)
-
         self.start()
 
     def get_terminal_type(self):
@@ -589,7 +611,8 @@ class udp_terminal(threading.Thread):
                 self.keepalive_until = 0
                 continue
             msg = op25_repeater.message().make_from_string(str(data['command']), -2, data['arg1'], data['arg2'])
-            self.output_q.insert_tail(msg)
+            if not self.output_q.full_p():
+                self.output_q.insert_tail(msg)
             self.remote_ip = addr[0]
             self.remote_port = addr[1]
             self.keepalive_until = time.time() + KEEPALIVE_TIME
@@ -626,7 +649,8 @@ class terminal_client(object):
             try:
                 js, addr = self.sock.recvfrom(2048)
                 msg = op25_repeater.message().make_from_string(js, -4, 0, 0)
-                self.input_q.insert_tail(msg)
+                if not self.input_q.full_p():
+                    self.input_q.insert_tail(msg)
             except socket.timeout:
                 pass
             except:

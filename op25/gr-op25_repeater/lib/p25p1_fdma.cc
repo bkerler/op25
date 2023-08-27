@@ -224,8 +224,6 @@ namespace gr {
             int p = 0;
             if (!d_do_msgq)
                 return;
-            if (d_msg_queue->full_p())
-                return;
             assert (len+2 <= (int)sizeof(wbuf));
             wbuf[p++] = (nac >> 8) & 0xff;
             wbuf[p++] = nac & 0xff;
@@ -359,6 +357,7 @@ namespace gr {
 
         void p25p1_fdma::process_TTDU() {
             process_duid(framer->duid, framer->nac, NULL, 0);
+            reset_ess();
 
             if ((d_do_imbe || d_do_audio_output) && (framer->duid == 0x3 || framer->duid == 0xf)) {  // voice termination
                 op25audio.send_audio_flag(op25_audio::DRAIN);
@@ -545,7 +544,7 @@ namespace gr {
         void p25p1_fdma::process_voice(const bit_vector& A, const frame_type fr_type) {
             if (d_do_imbe || d_do_audio_output) {
                 if (encrypted())
-                    crypt_algs.prepare(ess_algid, ess_keyid, fr_type, ess_mi);
+                    crypt_algs.prepare(ess_algid, ess_keyid, PT_P25_PHASE1, ess_mi);
 
                 for(size_t i = 0; i < nof_voice_codewords; ++i) {
                     voice_codeword cw(voice_codeword_sz);
@@ -570,7 +569,7 @@ namespace gr {
                     if (encrypted()) {
                         packed_codeword ciphertext;
                         imbe_pack(ciphertext, u[0], u[1], u[2], u[3], u[4], u[5], u[6], u[7]);
-                        audio_valid = crypt_algs.process(ciphertext);
+                        audio_valid = crypt_algs.process(ciphertext, fr_type, i);
                         imbe_unpack(ciphertext, u[0], u[1], u[2], u[3], u[4], u[5], u[6], u[7]);
                     }
 
@@ -611,6 +610,12 @@ namespace gr {
             qtimer.reset();
         }
 
+        void p25p1_fdma::call_end() {
+            if (d_do_audio_output)
+                op25audio.send_audio_flag(op25_audio::DRAIN);
+            reset_ess();
+        }
+
         void p25p1_fdma::crypt_reset() {
             crypt_algs.reset();
         }
@@ -620,11 +625,12 @@ namespace gr {
         }
 
         void p25p1_fdma::send_msg(const std::string msg_str, long msg_type) {
-            if (!d_do_msgq || d_msg_queue->full_p())
+            if (!d_do_msgq)
                 return;
 
             gr::op25::message::sptr msg = gr::op25::message::make_from_string(msg_str, get_msg_type(PROTOCOL_P25, msg_type), (d_msgq_id << 1), logts.get_ts());
-            d_msg_queue->insert_tail(msg);
+            if (!d_msg_queue->full_p())
+                d_msg_queue->insert_tail(msg);
         }
 
         void p25p1_fdma::process_frame() {
@@ -712,7 +718,7 @@ namespace gr {
 
         // Check for timer expiry
         void p25p1_fdma::check_timeout() {
-            if (d_do_msgq && !d_msg_queue->full_p()) {
+            if (d_do_msgq) {
                 // check for timeout
                 if (qtimer.expired()) {
                     if (d_debug >= 10)
@@ -724,7 +730,8 @@ namespace gr {
 
                     qtimer.reset();
                     gr::op25::message::sptr msg = gr::op25::message::make(get_msg_type(PROTOCOL_P25, M_P25_TIMEOUT), (d_msgq_id << 1), logts.get_ts());
-                    d_msg_queue->insert_tail(msg);
+                    if (!d_msg_queue->full_p())
+                        d_msg_queue->insert_tail(msg);
                 }
             }
         }

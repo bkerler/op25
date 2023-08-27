@@ -25,6 +25,7 @@
 #include <gnuradio/op25_repeater/api.h>
 #include <gnuradio/block.h>
 #include <gnuradio/op25_repeater/msg_queue.h>
+#include <string>
 
 namespace gr {
   namespace op25_repeater {
@@ -47,15 +48,9 @@ namespace gr {
        * class. op25_repeater::p25_frame_assembler::make is the public interface for
        * creating new instances.
        */
-      static sptr make(const char* udp_host, int port, int debug, bool do_imbe, bool do_output, bool do_msgq, gr::op25::msg_queue::sptr queue, bool do_audio_output, bool do_phase2_tdma, bool do_nocrypt);
-      virtual void set_xormask(const char*p) {}
-      virtual void set_nac(int nac) {}
-      virtual void set_slotid(int slotid) {}
-      virtual void set_slotkey(int key) {}
+      static sptr make(const char* udp_host, int port, int debug, bool do_imbe, bool do_output, bool do_msgq, gr::msg_queue::sptr queue, bool do_audio_output, bool do_phase2_tdma, bool do_nocrypt);
       virtual void set_debug(int debug) {}
-      virtual void reset_timer() {}
-      virtual void crypt_reset(void) {}
-      virtual void crypt_key(uint16_t keyid, uint8_t algid, const std::vector<uint8_t> &key) {}
+      virtual void control(const std::string& args) {}
     };
 
   } // namespace op25_repeater

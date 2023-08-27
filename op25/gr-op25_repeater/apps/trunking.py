@@ -656,15 +656,15 @@ class trunked_system (object):
         elif opcode == 0x2c:   # u_reg_rsp
             mfrid  = (tsbk >> 80) & 0xff
             rv     = (tsbk >> 76) & 0x3
-            syid   = (tsbk >> 64) & 0xffff
-            sid   = (tsbk >> 40) & 0xffffff
+            syid   = (tsbk >> 64) & 0xfff
+            sid    = (tsbk >> 40) & 0xffffff
             sa     = (tsbk >> 16) & 0xffffff
             if self.debug >= 10:
                 sys.stderr.write('%s [0] tsbk(0x2c) u_reg_rsp: mfid: 0x%x rv: %d syid: 0x%x sid: %d sa: %d\n' % (log_ts.get(), mfrid, rv, syid, sid, sa))
         elif opcode == 0x2f:   # u_de_reg_ack
             mfrid  = (tsbk >> 80) & 0xff
             wacn   = (tsbk >> 52) & 0xfffff
-            syid   = (tsbk >> 40) & 0xffff
+            syid   = (tsbk >> 40) & 0xfff
             sid    = (tsbk >> 16) & 0xffffff
             if self.debug >= 10:
                 sys.stderr.write('%s [0] tsbk(0x2f) u_de_reg_ack: mfid: 0x%x wacn: 0x%x syid: 0x%x sid: %d\n' % (log_ts.get(), mfrid, wacn, syid, sid))
@@ -1225,7 +1225,7 @@ def get_int_dict(s):
     return dict.fromkeys(d)
 
 class rx_ctl (object):
-    def __init__(self, debug=0, frequency_set=None, conf_file=None, logfile_workers=None, meta_update=None, crypt_behavior=0, nac_set=None, slot_set=None, nbfm_ctrl=None, chans={}):
+    def __init__(self, debug=0, frequency_set=None, conf_file=None, logfile_workers=None, meta_update=None, crypt_behavior=0, nbfm_ctrl=None, fa_ctrl=None, chans={}):
         class _states(object):
             ACQ = 0
             CC = 1
@@ -1237,7 +1237,7 @@ class rx_ctl (object):
         self.trunked_systems = {}
         self.receivers = {}
         self.frequency_set = frequency_set
-        self.nac_set = nac_set
+        self.fa_ctrl = fa_ctrl
         self.meta_update = meta_update
         self.crypt_behavior = crypt_behavior
         self.meta_state = 0
@@ -1295,14 +1295,16 @@ class rx_ctl (object):
             self.meta_q = meta_q
             self.meta_update = self.update_meta
 
-    def update_meta(self, tgid = None, tag = None):
+    def update_meta(self, tgid = None, tag = None, rid = None):
         if self.meta_q is None:
             return
         d = {'json_type': 'meta_update'}
         d['tgid'] = tgid
         d['tag'] = tag
+        d['rid'] = rid
         msg = op25_repeater.message().make_from_string(json.dumps(d), -2, time.time(), 0)
-        self.meta_q.insert_tail(msg)
+        if not self.meta_q.full_p():
+            self.meta_q.insert_tail(msg)
 
     def post_init(self):
         self.nacs = list(self.configs.keys())
@@ -1316,9 +1318,9 @@ class rx_ctl (object):
                 worker['demod'].connect_chain('fsk4')
 
         if self.current_nac is None:
-            self.nac_set({'tuner': 0,'nac': 0})
+            self.fa_ctrl({'tuner': 0, 'cmd': 'set_nac', 'nac': 0})
         else:
-            self.nac_set({'tuner': 0,'nac': self.current_nac})
+            self.fa_ctrl({'tuner': 0, 'cmd': 'set_nac', 'nac': self.current_nac})
         self.set_frequency({
             'freq':   tsys.trunk_cc,
             'tgid':   None,
@@ -1344,7 +1346,7 @@ class rx_ctl (object):
             self.frequency_set(params)
             self.current_slot = params['tdma']
 
-    def do_metadata(self, state, tgid, tag):
+    def do_metadata(self, state, tgid, tag, rid = None):
         if self.meta_update is None:
             return
 
@@ -1353,7 +1355,7 @@ class rx_ctl (object):
 
         if self.debug > 10:
             sys.stderr.write("%s do_metadata state=%d: [%s] %s\n" % (log_ts.get(), state, tgid, tag))
-        self.meta_update(tgid, tag)
+        self.meta_update(tgid, tag, rid)
         self.meta_state = state
 
     def add_trunked_system(self, nac):
@@ -1619,7 +1621,7 @@ class rx_ctl (object):
                 #TODO: make trunking properly auto-start with minimal configuration
                 #self.nacs = list(self.configs.keys())
                 #self.current_nac = nac
-                #self.nac_set({'tuner': 0,'nac': nac})
+                #self.fa_ctrl({'tuner': 0, 'cmd': 'set_nac', 'nac': nac})
             else:
                 # If trunk.tsv file configured with nac=0, use decoded nac instead
                 if 0 in self.trunked_systems:
@@ -1628,7 +1630,7 @@ class rx_ctl (object):
                     self.configs[nac] = self.configs.pop(0)
                     self.nacs = list(self.configs.keys())
                     self.current_nac = nac
-                    self.nac_set({'tuner': 0,'nac': nac})
+                    self.fa_ctrl({'tuner': 0, 'cmd': 'set_nac', 'nac': nac})
                 else:
                     sys.stderr.write("%s NAC %x not configured\n" % (log_ts.get(), nac))
                 return
@@ -1675,7 +1677,7 @@ class rx_ctl (object):
                     sys.stderr.write("%s Autostart trunking for NAC 0x%03x with cc_list: %s\n" % (log_ts.get(), nac_list[0], tsys.cc_list))
                     self.nacs = list(self.configs.keys())
                     self.current_nac = nac_list[0]
-                    self.nac_set({'tuner': 0,'nac': nac_list[0]})
+                    self.fa_ctrl({'tuner': 0, 'cmd': 'set_nac', 'nac': nac_list[0]})
                     self.current_state = self.states.CC
                     self.autostart = False
 
@@ -1871,26 +1873,30 @@ class rx_ctl (object):
                     self.tgid_hold_until = max(curr_time + self.TGID_HOLD_TIME, self.tgid_hold_until)
                     self.wait_until = curr_time + self.TSYS_HOLD_TIME
                     new_slot = tdma_slot
-                    self.do_metadata(0, new_tgid,tsys.get_tag(new_tgid))
+                    self.do_metadata(0, new_tgid,tsys.get_tag(new_tgid), srcaddr)
             else: # check for priority tgid preemption
-                new_frequency, new_tgid, tdma_slot, srcaddr = tsys.find_talkgroup(tsys.talkgroups[self.current_tgid]['time'], tgid=self.current_tgid, hold=self.hold_mode)
-                if new_tgid != self.current_tgid:
-                    if self.debug > 0:
-                        tslot = tdma_slot if tdma_slot is not None else '-'
-                        sys.stderr.write("%s voice preempt: tg(%s), freq(%s), slot(%s), prio(%d)\n" % (log_ts.get(), new_tgid, new_frequency, tslot, tsys.get_prio(new_tgid)))
-                    new_state = self.states.TO_VC
-                    self.current_tgid = new_tgid
-                    self.current_srcaddr = srcaddr
-                    self.tgid_hold = new_tgid
-                    self.tgid_hold_until = max(curr_time + self.TGID_HOLD_TIME, self.tgid_hold_until)
-                    self.wait_until = curr_time + self.TSYS_HOLD_TIME
-                    new_slot = tdma_slot
-                    self.do_metadata(0, new_tgid,tsys.get_tag(new_tgid))
+                if (self.tgid_hold is not None) and (self.tgid_hold_until > curr_time) and self.hold_mode is True:
+                    if self.debug > 10:
+                        sys.stderr.write("%s skip preempt due to manual hold on tg(%s)\n" % (log_ts.get(), self.tgid_hold))
                 else:
-                    if tsys.talkgroups[self.current_tgid]['srcaddr'] != 0:
-                        self.current_srcaddr = tsys.talkgroups[self.current_tgid]['srcaddr']
-                        self.current_grpaddr = self.current_tgid
-                    new_frequency = None
+                    new_frequency, new_tgid, tdma_slot, srcaddr = tsys.find_talkgroup(tsys.talkgroups[self.current_tgid]['time'], tgid=self.current_tgid, hold=self.hold_mode)
+                    if new_tgid != self.current_tgid:
+                        if self.debug > 0:
+                            tslot = tdma_slot if tdma_slot is not None else '-'
+                            sys.stderr.write("%s voice preempt: tg(%s), freq(%s), slot(%s), prio(%d)\n" % (log_ts.get(), new_tgid, new_frequency, tslot, tsys.get_prio(new_tgid)))
+                        new_state = self.states.TO_VC
+                        self.current_tgid = new_tgid
+                        self.current_srcaddr = srcaddr
+                        self.tgid_hold = new_tgid
+                        self.tgid_hold_until = max(curr_time + self.TGID_HOLD_TIME, self.tgid_hold_until)
+                        self.wait_until = curr_time + self.TSYS_HOLD_TIME
+                        new_slot = tdma_slot
+                        self.do_metadata(0, new_tgid,tsys.get_tag(new_tgid), srcaddr)
+                    else:
+                        if tsys.talkgroups[self.current_tgid]['srcaddr'] != 0:
+                            self.current_srcaddr = tsys.talkgroups[self.current_tgid]['srcaddr']
+                            self.current_grpaddr = self.current_tgid
+                        new_frequency = None
         elif command in ['duid3', 'tdma_duid3']: # termination, no channel release
             if self.current_state != self.states.CC:
                 self.wait_until = curr_time + self.TSYS_HOLD_TIME
@@ -2022,7 +2028,7 @@ class rx_ctl (object):
             self.current_srcaddr = 0
             self.current_grpaddr = 0
             self.current_encrypted = 0
-            self.nac_set({'tuner': 0,'nac': 0})
+            self.fa_ctrl({'tuner': 0, 'cmd': 'set_nac', 'nac': 0})
             tsys.reset()
 
         if self.current_state != self.states.CC and self.tgid_hold_until <= curr_time and self.hold_mode is False and new_state is None:
@@ -2045,13 +2051,13 @@ class rx_ctl (object):
             new_state = self.states.CC
 
         if self.current_state == self.states.CC and self.tgid_hold_until <= curr_time:
-            self.do_metadata(1, None, None)
+            self.do_metadata(1, None, None, None)
 
         if new_nac is not None:
             nac = self.current_nac = new_nac
             tsys = self.trunked_systems[nac]
             new_frequency = tsys.trunk_cc
-            self.nac_set({'tuner': 0,'nac': new_nac})
+            self.fa_ctrl({'tuner': 0, 'cmd': 'set_nac', 'nac': new_nac})
             self.current_srcaddr = 0
             self.current_grpaddr = 0
             self.current_encrypted = 0

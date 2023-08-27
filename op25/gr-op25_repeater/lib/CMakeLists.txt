@@ -9,6 +9,26 @@
 ########################################################################
 # Setup library
 ########################################################################
+option(AMBE_TONES "Enable AMBE tone synthesis" ON)
+if (AMBE_TONES)
+  message(STATUS "AMBE Tone Synthesis Enabled")
+else()
+  message(STATUS "AMBE Tone Synthesis Disabled")
+  add_definitions(-DDISABLE_AMBE_TONES)
+endif()
+unset(AMBE_TONES CACHE)
+
+option(NID_PARITY_CHECK "Enable NID Parity Check" OFF)
+if (NID_PARITY_CHECK)
+  message(STATUS "NID Parity Check Enabled")
+else()
+  message(STATUS "NID Parity Check Disabled")
+  add_definitions(-DDISABLE_NID_PARITY_CHECK)
+endif()
+unset(NID_PARITY_CHECK CACHE)
+
+add_definitions(-DEZPWD_NO_EXCEPTS)
+
 include(GrPlatform) #define LIB_SUFFIX
 
 list(APPEND op25_repeater_sources
@@ -53,7 +73,7 @@ list(APPEND op25_repeater_sources
     dmr_cai.cc
     dmr_slot.cc
     op25_audio.cc
-    op25_timer
+    op25_timer.cc
     CCITTChecksumReverse.cpp
     message.cc
     msg_queue.cc
